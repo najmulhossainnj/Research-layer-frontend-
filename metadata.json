@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Hedge Fund Research Layer UI",
+  "description": "Production-grade quantitative research platform for strategy creation, feature engineering, backtesting, and walk-forward validation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
