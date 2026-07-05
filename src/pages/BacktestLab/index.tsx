@@ -202,16 +202,39 @@ export const BacktestLab: React.FC = () => {
       // Create backtest
       const backtest = await createBacktest(payload);
       setSelectedId(backtest.id);
+      setToast({ message: 'Backtest created! Submitting for execution...', type: 'info' });
 
-      // Execute backtest asynchronously (dispatched via Celery)
-      await executeBacktest(backtest.id, { async_mode: true });
-
-      setToast({ message: `Backtest created successfully with status: running! Polling Celery workers...`, type: 'success' });
+      // Try async mode first (Celery/Redis recommended)
+      try {
+        const result = await executeBacktest(backtest.id, { async_mode: true });
+        
+        if (result?.task_id) {
+          setToast({ message: `Backtest dispatched! Task ID: ${result.task_id.slice(0, 8)}... Polling workers...`, type: 'info' });
+        } else {
+          setToast({ message: 'Backtest started!', type: 'success' });
+        }
+      } catch (e: any) {
+        // Fallback to sync mode if async fails (no Celery/Redis)
+        setToast({ message: 'Async execution unavailable. Running in sync mode...', type: 'warning' });
+        try {
+          const result = await executeBacktest(backtest.id, { async_mode: false });
+          setToast({ message: `Backtest completed! Status: ${result?.status || 'completed'}`, type: 'success' });
+          if (result?.id) {
+            setSelectedId(result.id);
+          }
+        } catch (syncErr: any) {
+          const errorMsg = syncErr?.detail || syncErr?.message || 'Sync execution failed';
+          setToast({ message: `Execution Error: ${errorMsg}`, type: 'error' });
+        }
+      }
       
       // Force trigger refetch immediately
       refetchBacktests();
     } catch (e: any) {
-      setToast({ message: `Execution Error: ${e.message || 'Validation failed on inputs'}`, type: 'error' });
+      // Parse error details from backend
+      const errorMsg = e?.detail?.[0]?.msg || e?.detail || e?.message || 'Unknown error';
+      const errorLoc = e?.detail?.[0]?.loc?.join('.') || '';
+      setToast({ message: `Execution Error${errorLoc ? ` (${errorLoc})` : ''}: ${errorMsg}`, type: 'error' });
     } finally {
       setIsRunning(false);
     }
