@@ -7,10 +7,10 @@ export interface Strategy {
   universe: string[];
   timeframe: string;
   status: StrategyStatus;
-  version: number;
-  last_updated: string;
-  created_at: string;
-  pipeline_config: PipelineConfig;
+  version?: number;
+  last_updated?: string;
+  created_at?: string;
+  pipeline_config?: PipelineConfig;
   best_metrics?: StrategyMetrics;
   governance_flags?: GovernanceFlag[];
   feature_ids?: string[];
@@ -84,12 +84,18 @@ export interface PipelineConfig {
 export interface Feature {
   id: string;
   name: string;
-  type: 'Technical' | 'Statistical' | 'Automated' | 'News' | 'Fundamental' | 'Macro';
+  type?: string;  // Backend may return lowercase or uppercase
+  description?: string;
+  parameters?: Record<string, any>;  // Backend uses 'parameters'
   plugin_key: string;
-  version: string;
-  last_generated: string;
+  version?: string | number;
+  storage_uri?: string;
+  created_at?: string;
+  updated_at?: string;
+  // Legacy compatibility
+  params?: Record<string, any>;
+  last_generated?: string;
   storage_size?: string;
-  params: Record<string, any>;
 }
 
 export interface FeatureVersion {
@@ -124,13 +130,19 @@ export interface ParamSpec {
 export interface Model {
   id: string;
   name: string;
-  family: 'Statistical' | 'ML' | 'DL' | 'Ensemble';
-  plugin_key: string;
-  version: string;
-  params: Record<string, any>;
-  created_at: string;
+  model_type?: string;  // Backend returns 'model_type' instead of 'plugin_key'
+  family?: string;  // Backend may return 'ml' or 'machine_learning'
+  plugin_key?: string;  // Sometimes returned
+  version?: string | number;
+  parameters?: Record<string, any>;  // Backend uses 'parameters'
+  params?: Record<string, any>;  // Legacy
+  created_at?: string;
+  updated_at?: string;
   best_score?: number;
   cv_results?: CVResultSummary;
+  mlflow_run_id?: string;
+  artifact_uri?: string;
+  metrics?: Record<string, any>;
 }
 
 export interface CVResultSummary {

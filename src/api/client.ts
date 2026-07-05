@@ -58,6 +58,11 @@ export const promoteStrategy = async (id: string, confidence?: number): Promise<
   return res.data;
 };
 
+export const demoteStrategy = async (id: string): Promise<any> => {
+  const res = await api.post(`/strategies/${id}/demote`);
+  return res.data;
+};
+
 export const getStrategyStatus = async (id: string): Promise<any> => {
   const res = await api.get(`/strategies/${id}/status`);
   return res.data;
@@ -69,13 +74,33 @@ export const getFeatures = async (): Promise<Feature[]> => {
   return res.data;
 };
 
+export const getFeature = async (id: string): Promise<Feature> => {
+  const res = await api.get<Feature>(`/features/${id}`);
+  return res.data;
+};
+
 export const createFeature = async (body: Partial<Feature>): Promise<Feature> => {
   const res = await api.post<Feature>('/features', body);
   return res.data;
 };
 
+export const updateFeature = async (id: string, body: Partial<Feature>): Promise<Feature> => {
+  const res = await api.patch<Feature>(`/features/${id}`, body);
+  return res.data;
+};
+
+export const deleteFeature = async (id: string): Promise<any> => {
+  const res = await api.delete(`/features/${id}`);
+  return res.data;
+};
+
 export const generateFeatureAsync = async (id: string): Promise<any> => {
   const res = await api.post(`/features/${id}/generate`);
+  return res.data;
+};
+
+export const regenerateFeature = async (id: string): Promise<any> => {
+  const res = await api.post(`/features/${id}/regenerate`);
   return res.data;
 };
 
@@ -90,13 +115,48 @@ export const getModels = async (): Promise<Model[]> => {
   return res.data;
 };
 
+export const getModel = async (id: string): Promise<Model> => {
+  const res = await api.get<Model>(`/models/${id}`);
+  return res.data;
+};
+
 export const createModel = async (body: Partial<Model>): Promise<Model> => {
   const res = await api.post<Model>('/models', body);
   return res.data;
 };
 
+export const updateModel = async (id: string, body: Partial<Model>): Promise<Model> => {
+  const res = await api.patch<Model>(`/models/${id}`, body);
+  return res.data;
+};
+
+export const deleteModel = async (id: string): Promise<any> => {
+  const res = await api.delete(`/models/${id}`);
+  return res.data;
+};
+
+export const trainModel = async (id: string, body?: any): Promise<any> => {
+  const res = await api.post(`/models/${id}/train`, body);
+  return res.data;
+};
+
 export const trainModelAsync = async (id: string, body?: any): Promise<any> => {
   const res = await api.post(`/models/${id}/train/async`, body);
+  return res.data;
+};
+
+export const tuneModel = async (id: string, body?: any): Promise<any> => {
+  const res = await api.post(`/models/tune`, { model_id: id, ...body });
+  return res.data;
+};
+
+export const tuneModelAsync = async (id: string, body?: any): Promise<any> => {
+  const res = await api.post(`/models/tune/async`, { model_id: id, ...body });
+  return res.data;
+};
+
+export const runAutoML = async (body?: any): Promise<any> => {
+  const res = await api.post('/models/automl', body);
   return res.data;
 };
 
@@ -218,6 +278,63 @@ export const getTaskStatus = async (taskId: string): Promise<TaskResponse> => {
   return res.data;
 };
 
+// --- Tracking / MLflow ---
+export interface TrackingRun {
+  run_id: string;
+  experiment_name: string;
+  status: string;
+  start_time: string;
+  end_time?: string;
+  metrics: Record<string, number>;
+  params: Record<string, string>;
+}
+
+export const getTrackingRuns = async (params?: { experiment_id?: string; limit?: number }): Promise<TrackingRun[]> => {
+  const res = await api.get('/tracking/runs', { params });
+  return res.data;
+};
+
+export const getTrackingRun = async (runId: string): Promise<TrackingRun> => {
+  const res = await api.get(`/tracking/runs/${runId}`);
+  return res.data;
+};
+
+export const getTrackingRunMetrics = async (runId: string): Promise<Record<string, number>> => {
+  const res = await api.get(`/tracking/runs/${runId}/metrics`);
+  return res.data;
+};
+
+export const getTrackingRunParams = async (runId: string): Promise<Record<string, string>> => {
+  const res = await api.get(`/tracking/runs/${runId}/params`);
+  return res.data;
+};
+
+export const compareTrackingRuns = async (runIds: string[]): Promise<any> => {
+  const res = await api.post('/tracking/runs/compare', { run_ids: runIds });
+  return res.data;
+};
+
+export const getTrackingExperiments = async (): Promise<any[]> => {
+  const res = await api.get('/tracking/experiments');
+  return res.data;
+};
+
+// --- News Sentiment ---
+export const scoreNews = async (body: { text: string }): Promise<any> => {
+  const res = await api.post('/news/score', body);
+  return res.data;
+};
+
+export const aggregateNewsSentiment = async (params: { symbol: string; start: string; end: string }): Promise<any> => {
+  const res = await api.post('/news/aggregate', params);
+  return res.data;
+};
+
+export const getNewsFeatures = async (params: { symbol: string; start: string; end: string }): Promise<any> => {
+  const res = await api.get('/news/features', { params });
+  return res.data;
+};
+
 // --- Agents System ---
 export interface ResearchQueryBody {
   query: string;
@@ -233,9 +350,23 @@ export const submitResearchQuery = async (body: ResearchQueryBody): Promise<any>
   return res.data;
 };
 
+// SSE endpoint for streaming research
+export const researchQueryStream = (body: ResearchQueryBody): EventSource => {
+  const queryParams = new URLSearchParams({
+    query: body.query,
+    ...(body.symbols && { symbols: body.symbols.join(',') }),
+    ...(body.timeframe && { timeframe: body.timeframe }),
+    ...(body.start_date && { start_date: body.start_date }),
+    ...(body.end_date && { end_date: body.end_date }),
+    ...(body.strategy_id && { strategy_id: body.strategy_id }),
+  });
+  const baseURL = (api.defaults.baseURL as string) || '';
+  return new EventSource(`${baseURL}/agents/research/stream?${queryParams}`);
+};
+
 export interface AgentChatBody {
   query: string;
-  session_id: string | null;
+  session_id?: string | null;
   context_override?: Record<string, any>;
 }
 
