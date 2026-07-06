@@ -16,6 +16,7 @@ export interface CeleryWorkerStatus {
   workers: string[];
   redisConnected: boolean;
   lastChecked: string | null;
+  brokerUrl: string | null;
   error?: string;
 }
 
@@ -55,6 +56,7 @@ export const useUIStore = create<UIState>((set) => ({
     workers: [],
     redisConnected: false,
     lastChecked: null,
+    brokerUrl: null,
   },
   setWorkspace: (tab) => set({ activeWorkspace: tab }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
