@@ -398,3 +398,14 @@ export const getCeleryStatus = async (): Promise<CeleryStatus> => {
   const res = await api.get<CeleryStatus>('/backtests/debug/celery-status');
   return res.data;
 };
+
+// Mask sensitive parts of Redis URL for display
+export const maskRedisUrl = (url: string | null): string => {
+  if (!url) return 'Not configured';
+  try {
+    // Replace password with asterisks
+    return url.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@');
+  } catch {
+    return url;
+  }
+};

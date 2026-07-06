@@ -1,6 +1,6 @@
 import React, { useEffect, useCallback } from 'react';
 import { useUIStore, WorkspaceTab } from '../../store/useUIStore';
-import { getCeleryStatus, getTaskStatus } from '../../api/client';
+import { getCeleryStatus, getTaskStatus, maskRedisUrl } from '../../api/client';
 
 interface NavItem {
   id: WorkspaceTab;
@@ -35,6 +35,7 @@ export const SidebarNav: React.FC = () => {
         workers: status.workers_available,
         redisConnected: status.redis_reachable,
         lastChecked: new Date().toISOString(),
+        brokerUrl: status.broker_url,
         error: status.error || undefined
       });
     } catch (err) {
@@ -43,6 +44,7 @@ export const SidebarNav: React.FC = () => {
         workers: [],
         redisConnected: false,
         lastChecked: new Date().toISOString(),
+        brokerUrl: null,
         error: 'Failed to connect to backend'
       });
     }
@@ -254,9 +256,17 @@ export const SidebarNav: React.FC = () => {
                 {celeryStatus.redisConnected ? 'CONNECTED' : 'DISCONNECTED'}
               </span>
             </div>
-            {celeryStatus.lastChecked && (
+            {celeryStatus.brokerUrl && (
               <div className="flex justify-between items-center">
-                <span className="text-[#666]">Updated:</span>
+                <span className="text-[#666]">Broker:</span>
+                <span className="font-mono text-[#4F8EF7] text-[9px] truncate max-w-[120px]" title={celeryStatus.brokerUrl}>
+                  {maskRedisUrl(celeryStatus.brokerUrl)}
+                </span>
+              </div>
+            )}
+            {celeryStatus.lastChecked && (
+              <div className="flex justify-between items-center mt-1 pt-1 border-t border-[#1a1a1a]">
+                <span className="text-[#555]">Updated:</span>
                 <span className="font-mono text-[#555]">
                   {new Date(celeryStatus.lastChecked).toLocaleTimeString()}
                 </span>
