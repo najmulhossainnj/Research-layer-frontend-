@@ -384,3 +384,17 @@ export const listAgentSessions = async (): Promise<{ sessions: string[]; total: 
   const res = await api.get<{ sessions: string[]; total: number }>('/agents/sessions');
   return res.data;
 };
+
+// --- Celery Worker Status ---
+export interface CeleryStatus {
+  celery_configured: boolean;
+  redis_reachable: boolean;
+  broker_url: string | null;
+  workers_available: string[];
+  error: string | null;
+}
+
+export const getCeleryStatus = async (): Promise<CeleryStatus> => {
+  const res = await api.get<CeleryStatus>('/backtests/debug/celery-status');
+  return res.data;
+};
