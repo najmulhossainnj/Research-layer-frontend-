@@ -3,10 +3,20 @@ import { create } from 'zustand';
 export interface ActiveTask {
   id: string;
   label: string;
-  status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'FAILURE';
+  status: 'PENDING' | 'STARTED' | 'RUNNING' | 'SUCCESS' | 'FAILURE';
   progress?: number;
   resultUrl?: string;
   domain?: string;
+  taskType?: 'backtest' | 'feature' | 'model' | 'validation';
+  createdAt?: string;
+}
+
+export interface CeleryWorkerStatus {
+  online: boolean;
+  workers: string[];
+  redisConnected: boolean;
+  lastChecked: string | null;
+  error?: string;
 }
 
 export type WorkspaceTab =
@@ -25,22 +35,27 @@ interface UIState {
   sidebarCollapsed: boolean;
   selectedStrategyId: string | null;
   pendingTasks: ActiveTask[];
+  celeryStatus: CeleryWorkerStatus;
   setWorkspace: (tab: WorkspaceTab) => void;
   toggleSidebar: () => void;
   selectStrategy: (id: string | null) => void;
   addTask: (task: ActiveTask) => void;
   updateTask: (id: string, updates: Partial<ActiveTask>) => void;
   removeTask: (id: string) => void;
+  setCeleryStatus: (status: CeleryWorkerStatus) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   activeWorkspace: 'explorer',
   sidebarCollapsed: false,
   selectedStrategyId: 'strat_101',
-  pendingTasks: [
-    { id: 'task_demo_1', label: 'Walk-Forward IS/OOS NVDA.O', status: 'RUNNING', progress: 65, domain: 'validation' },
-    { id: 'task_demo_2', label: 'tsfresh Feature Gen MegaCaps', status: 'SUCCESS', progress: 100, domain: 'features' }
-  ],
+  pendingTasks: [],
+  celeryStatus: {
+    online: false,
+    workers: [],
+    redisConnected: false,
+    lastChecked: null,
+  },
   setWorkspace: (tab) => set({ activeWorkspace: tab }),
   toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
   selectStrategy: (id) => set({ selectedStrategyId: id }),
@@ -50,5 +65,6 @@ export const useUIStore = create<UIState>((set) => ({
       pendingTasks: state.pendingTasks.map((t) => (t.id === id ? { ...t, ...updates } : t))
     })),
   removeTask: (id) =>
-    set((state) => ({ pendingTasks: state.pendingTasks.filter((t) => t.id !== id) }))
+    set((state) => ({ pendingTasks: state.pendingTasks.filter((t) => t.id !== id) })),
+  setCeleryStatus: (status) => set({ celeryStatus: status })
 }));

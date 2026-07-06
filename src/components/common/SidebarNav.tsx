@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useUIStore, WorkspaceTab } from '../../store/useUIStore';
+import { getCeleryStatus, getTaskStatus } from '../../api/client';
 
 interface NavItem {
   id: WorkspaceTab;
@@ -8,8 +9,80 @@ interface NavItem {
   badge?: string;
 }
 
+// Polling interval for Celery status (5 seconds)
+const CELERY_POLL_INTERVAL = 5000;
+// Task status polling interval (2 seconds)
+const TASK_POLL_INTERVAL = 2000;
+
 export const SidebarNav: React.FC = () => {
-  const { activeWorkspace, setWorkspace, pendingTasks, removeTask, sidebarCollapsed } = useUIStore();
+  const { 
+    activeWorkspace, 
+    setWorkspace, 
+    pendingTasks, 
+    removeTask, 
+    sidebarCollapsed,
+    celeryStatus,
+    setCeleryStatus,
+    updateTask
+  } = useUIStore();
+
+  // Fetch Celery worker status
+  const fetchCeleryStatus = useCallback(async () => {
+    try {
+      const status = await getCeleryStatus();
+      setCeleryStatus({
+        online: status.workers_available.length > 0,
+        workers: status.workers_available,
+        redisConnected: status.redis_reachable,
+        lastChecked: new Date().toISOString(),
+        error: status.error || undefined
+      });
+    } catch (err) {
+      setCeleryStatus({
+        online: false,
+        workers: [],
+        redisConnected: false,
+        lastChecked: new Date().toISOString(),
+        error: 'Failed to connect to backend'
+      });
+    }
+  }, [setCeleryStatus]);
+
+  // Poll task status for pending tasks
+  const pollTaskStatuses = useCallback(async () => {
+    for (const task of pendingTasks) {
+      if (task.status === 'PENDING' || task.status === 'STARTED' || task.status === 'RUNNING') {
+        try {
+          const result = await getTaskStatus(task.id);
+          if (result.status === 'SUCCESS' || result.status === 'FAILURE') {
+            updateTask(task.id, { 
+              status: result.status, 
+              progress: result.status === 'SUCCESS' ? 100 : 0 
+            });
+            // Auto-remove completed tasks after 5 seconds
+            setTimeout(() => removeTask(task.id), 5000);
+          }
+        } catch {
+          // Task may have been removed or errored
+        }
+      }
+    }
+  }, [pendingTasks, updateTask, removeTask]);
+
+  // Set up polling on mount
+  useEffect(() => {
+    // Initial fetch
+    fetchCeleryStatus();
+    
+    // Set up polling intervals
+    const celeryInterval = setInterval(fetchCeleryStatus, CELERY_POLL_INTERVAL);
+    const taskInterval = setInterval(pollTaskStatuses, TASK_POLL_INTERVAL);
+    
+    return () => {
+      clearInterval(celeryInterval);
+      clearInterval(taskInterval);
+    };
+  }, [fetchCeleryStatus, pollTaskStatuses]);
 
   const navList: NavItem[] = [
     { id: 'explorer', label: 'Strategy Explorer', icon: 'explore' },
@@ -22,6 +95,21 @@ export const SidebarNav: React.FC = () => {
     { id: 'validation_center', label: 'Validation Center', icon: 'verified', badge: 'GATE' },
     { id: 'ai_researcher', label: 'AI Researcher', icon: 'smart_toy', badge: 'GEMINI' }
   ];
+
+  // Worker status indicator color
+  const getWorkerStatusColor = () => {
+    if (celeryStatus.error) return 'bg-red-500';
+    if (!celeryStatus.redisConnected) return 'bg-yellow-500';
+    if (celeryStatus.online) return 'bg-green-500';
+    return 'bg-gray-500';
+  };
+
+  const getWorkerStatusText = () => {
+    if (celeryStatus.error) return 'ERROR';
+    if (!celeryStatus.redisConnected) return 'NO REDIS';
+    if (celeryStatus.online) return 'ONLINE';
+    return 'OFFLINE';
+  };
 
   return (
     <aside 
@@ -122,8 +210,9 @@ export const SidebarNav: React.FC = () => {
       {/* Celery Task Queue Poller */}
       {sidebarCollapsed ? (
         <div className="mt-auto p-2 border-t border-[#1a1a1a] bg-[#07080b] flex flex-col items-center gap-3.5 py-4">
-          <div className="relative cursor-pointer" title={`${pendingTasks.length} active tasks`}>
-            <span className="material-symbols-outlined text-[16px] animate-spin text-[#4F8EF7] block">sync</span>
+          {/* Worker Status Indicator */}
+          <div className="relative cursor-pointer" title={`Worker: ${getWorkerStatusText()}`}>
+            <div className={`w-3 h-3 rounded-full ${getWorkerStatusColor()} ${celeryStatus.online ? 'animate-pulse' : ''}`}></div>
             {pendingTasks.length > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[7px] font-mono px-1 rounded-full scale-90">
                 {pendingTasks.length}
@@ -136,14 +225,51 @@ export const SidebarNav: React.FC = () => {
         </div>
       ) : (
         <div className="mt-auto p-4 border-t border-[#1a1a1a] bg-[#07080b]">
+          {/* Header with Worker Status */}
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] uppercase tracking-widest text-[#c5a059] font-bold flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[13px] animate-spin text-[#4F8EF7]">sync</span>
+              <span className={`material-symbols-outlined text-[13px] ${celeryStatus.online ? 'text-[#2ECC8F]' : 'animate-spin text-[#4F8EF7]'}`}>
+                {celeryStatus.online ? 'check_circle' : 'sync'}
+              </span>
               Celery Queue
             </span>
-            <span className="text-[10px] font-mono text-[#8B95A8]">{pendingTasks.length} ACTIVE</span>
+            <div className="flex items-center gap-2">
+              {/* Worker status dot */}
+              <div className={`w-2 h-2 rounded-full ${getWorkerStatusColor()} ${celeryStatus.online ? 'animate-pulse' : ''}`}></div>
+              <span className="text-[10px] font-mono text-[#8B95A8]">{pendingTasks.length} ACTIVE</span>
+            </div>
           </div>
 
+          {/* Worker Info Panel */}
+          <div className="mb-2 p-2 bg-[#0d0f14] rounded border border-[#1a1a1a] text-[10px]">
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[#666]">Workers:</span>
+              <span className={`font-mono ${celeryStatus.online ? 'text-[#2ECC8F]' : 'text-[#E05252]'}`}>
+                {celeryStatus.online ? `${celeryStatus.workers.length} ONLINE` : 'OFFLINE'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center mb-1">
+              <span className="text-[#666]">Redis:</span>
+              <span className={`font-mono ${celeryStatus.redisConnected ? 'text-[#2ECC8F]' : 'text-[#E05252]'}`}>
+                {celeryStatus.redisConnected ? 'CONNECTED' : 'DISCONNECTED'}
+              </span>
+            </div>
+            {celeryStatus.lastChecked && (
+              <div className="flex justify-between items-center">
+                <span className="text-[#666]">Updated:</span>
+                <span className="font-mono text-[#555]">
+                  {new Date(celeryStatus.lastChecked).toLocaleTimeString()}
+                </span>
+              </div>
+            )}
+            {celeryStatus.error && (
+              <div className="mt-1 text-[#E05252] text-[9px] truncate" title={celeryStatus.error}>
+                ⚠ {celeryStatus.error}
+              </div>
+            )}
+          </div>
+
+          {/* Task List */}
           {pendingTasks.length === 0 ? (
             <div className="text-[11px] font-mono text-[#4A5268] py-2 text-center bg-[#0d0f14] rounded border border-[#1a1a1a]">
               QUEUE_IDLE // 0 JOBS
@@ -153,7 +279,9 @@ export const SidebarNav: React.FC = () => {
               {pendingTasks.map((task) => (
                 <div key={task.id} className="bg-[#141720] border border-[#252A3A] p-2 rounded text-[11px]">
                   <div className="flex justify-between items-center mb-1">
-                    <span className="text-white font-mono truncate max-w-[130px]">{task.label}</span>
+                    <span className="text-white font-mono truncate max-w-[130px]" title={task.id}>
+                      {task.label || task.id.slice(0, 12)}
+                    </span>
                     <button 
                       onClick={() => removeTask(task.id)}
                       className="border-none bg-transparent text-[#6A7488] hover:text-[#E05252] cursor-pointer p-0 text-xs"
@@ -164,15 +292,25 @@ export const SidebarNav: React.FC = () => {
                   </div>
                   <div className="w-full h-1 bg-[#0D0F14] rounded overflow-hidden">
                     <div 
-                      className={`h-full transition-all duration-300 ${task.status === 'SUCCESS' ? 'bg-[#2ECC8F]' : 'bg-[#4F8EF7]'}`}
-                      style={{ width: `${task.progress ?? 50}%` }}
+                      className={`h-full transition-all duration-300 ${
+                        task.status === 'SUCCESS' ? 'bg-[#2ECC8F]' : 
+                        task.status === 'FAILURE' ? 'bg-[#E05252]' : 
+                        'bg-[#4F8EF7]'
+                      }`}
+                      style={{ width: `${task.progress ?? (task.status === 'SUCCESS' ? 100 : task.status === 'FAILURE' ? 0 : 50)}%` }}
                     ></div>
                   </div>
                   <div className="flex justify-between items-center mt-1 text-[9px] font-mono">
-                    <span className={task.status === 'SUCCESS' ? 'text-[#2ECC8F]' : 'text-[#4F8EF7]'}>
+                    <span className={
+                      task.status === 'SUCCESS' ? 'text-[#2ECC8F]' : 
+                      task.status === 'FAILURE' ? 'text-[#E05252]' : 
+                      'text-[#4F8EF7]'
+                    }>
                       {task.status}
                     </span>
-                    <span className="text-[#8B95A8]">{task.progress ?? 50}%</span>
+                    <span className="text-[#8B95A8]">
+                      {task.progress ?? (task.status === 'SUCCESS' ? 100 : task.status === 'FAILURE' ? 0 : 50)}%
+                    </span>
                   </div>
                 </div>
               ))}

@@ -26,9 +26,11 @@ import {
   RefreshCw,
   Search
 } from 'lucide-react';
+import { useUIStore } from '../../store/useUIStore';
 
 export const BacktestLab: React.FC = () => {
   const queryClient = useQueryClient();
+  const { addTask, updateTask, removeTask } = useUIStore();
 
   // Fetch backtests
   const { data: backtests = [], refetch: refetchBacktests } = useQuery<BacktestRead[]>({
@@ -209,6 +211,16 @@ export const BacktestLab: React.FC = () => {
         const result = await executeBacktest(backtest.id, { async_mode: true });
         
         if (result?.task_id) {
+          // Add task to sidebar Celery queue
+          addTask({
+            id: result.task_id,
+            label: `Backtest ${selectedSymbol} ${engine}`,
+            status: 'PENDING',
+            progress: 0,
+            taskType: 'backtest',
+            domain: 'backtest',
+            createdAt: new Date().toISOString()
+          });
           setToast({ message: `Backtest dispatched! Task ID: ${result.task_id.slice(0, 8)}... Polling workers...`, type: 'info' });
         } else {
           setToast({ message: 'Backtest started!', type: 'success' });
