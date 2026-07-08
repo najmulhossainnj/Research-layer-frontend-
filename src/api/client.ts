@@ -346,8 +346,15 @@ export interface ResearchQueryBody {
   strategy_id?: string | null;
 }
 
+// Create a separate axios instance for long-running agent tasks (5 min timeout)
+const researchApi = axios.create({
+  baseURL: API_BASE_URL,
+  headers: { 'Content-Type': 'application/json' },
+  timeout: 300000 // 5 minutes for agentic pipeline (feature discovery + training + backtesting + validation)
+});
+
 export const submitResearchQuery = async (body: ResearchQueryBody): Promise<any> => {
-  const res = await api.post('/agents/research', body);
+  const res = await researchApi.post('/agents/research', body);
   return res.data;
 };
 
@@ -361,8 +368,7 @@ export const researchQueryStream = (body: ResearchQueryBody): EventSource => {
     ...(body.end_date && { end_date: body.end_date }),
     ...(body.strategy_id && { strategy_id: body.strategy_id }),
   });
-  const baseURL = (api.defaults.baseURL as string) || '';
-  return new EventSource(`${baseURL}/agents/research/stream?${queryParams}`);
+  return new EventSource(`${API_BASE_URL}/agents/research/stream?${queryParams}`);
 };
 
 export interface AgentChatBody {
@@ -372,17 +378,17 @@ export interface AgentChatBody {
 }
 
 export const chatWithAgent = async (body: AgentChatBody): Promise<any> => {
-  const res = await api.post('/agents/chat', body);
+  const res = await researchApi.post('/agents/chat', body);
   return res.data;
 };
 
 export const getSessionContext = async (sessionId: string): Promise<any> => {
-  const res = await api.get(`/agents/sessions/${sessionId}`);
+  const res = await researchApi.get(`/agents/sessions/${sessionId}`);
   return res.data;
 };
 
 export const listAgentSessions = async (): Promise<{ sessions: string[]; total: number }> => {
-  const res = await api.get<{ sessions: string[]; total: number }>('/agents/sessions');
+  const res = await researchApi.get<{ sessions: string[]; total: number }>('/agents/sessions');
   return res.data;
 };
 
