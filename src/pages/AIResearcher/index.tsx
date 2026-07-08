@@ -13,6 +13,7 @@ import {
 } from '../../api/client';
 import { API_BASE_URL } from '../../api/config';
 import { Feature, Strategy } from '../../types';
+
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
 import {
@@ -69,6 +70,16 @@ interface SavedSession {
   createdAt: string;
 }
 
+// Backend session type (from /agents/sessions endpoint)
+interface BackendSession {
+  session_id: string;
+  created_at: string;
+  query?: string;
+  status?: 'active' | 'completed' | 'failed';
+  strategy_id?: string;
+  title?: string;
+}
+
 // Load saved sessions from localStorage
 const loadSavedSessions = (): SavedSession[] => {
   try {
@@ -102,6 +113,38 @@ export const AIResearcher: React.FC = () => {
     queryKey: ['strategies'],
     queryFn: getStrategies
   });
+
+  // Fetch backend sessions
+  const { data: backendSessionsData, isLoading: isLoadingBackendSessions } = useQuery<{ sessions: BackendSession[]; total: number }>({
+    queryKey: ['agent-sessions'],
+    queryFn: async () => {
+      try {
+        const result = await listAgentSessions();
+        // Convert sessions to BackendSession objects
+        // API returns: { sessions: string[]; total: number }
+        // We need to convert to our BackendSession interface
+        const sessions: BackendSession[] = (result.sessions || []).map((s: any) => {
+          if (typeof s === 'string') {
+            // If it's just a session ID string, create a basic object
+            return {
+              session_id: s,
+              created_at: new Date().toISOString(),
+              status: 'active' as const
+            };
+          }
+          // If it's already an object
+          return s as BackendSession;
+        });
+        return { sessions, total: result.total || sessions.length };
+      } catch (error) {
+        console.error('Failed to fetch backend sessions:', error);
+        return { sessions: [], total: 0 };
+      }
+    },
+    staleTime: 30000 // Cache for 30 seconds
+  });
+
+  const backendSessions = backendSessionsData?.sessions || [];
 
   // Selected session context state
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -210,6 +253,52 @@ export const AIResearcher: React.FC = () => {
     setAgentSteps(session.agentSteps);
     setIsPromoted(session.status === 'completed');
     setShowSessionList(false);
+  };
+
+  // Load a session from the backend
+  const loadBackendSession = async (session: BackendSession) => {
+    try {
+      const context = await getSessionContext(session.session_id);
+      
+      // Convert backend session context to SavedSession format
+      const savedSession: SavedSession = {
+        id: session.session_id,
+        query: session.query || context.query || 'Untitled Session',
+        sessionId: session.session_id,
+        strategyId: session.strategy_id || context.strategy_id || '',
+        messages: context.messages || [],
+        liveContext: context.live_context || {
+          strategyName: context.strategy_name || '',
+          status: session.status === 'completed' ? 'validated' : 'building',
+          universe: context.universe || [],
+          timeframe: context.timeframe || '',
+          dateRange: context.date_range || '',
+          features: context.features || [],
+          model: context.model || '',
+          modelParams: context.model_params || '',
+          backtest: context.backtest || null,
+          validation: context.validation || null,
+          governance: context.governance || null
+        },
+        agentSteps: context.agent_steps || [
+          { role: 'market_data', label: '🔬 Market Data', status: 'completed', summary: 'Completed' },
+          { role: 'feature_discovery', label: '⚙️ Feature Discovery', status: 'completed', summary: 'Completed' },
+          { role: 'model_discovery', label: '⚙️ Model Discovery', status: 'completed', summary: 'Completed' },
+          { role: 'hyperparameter', label: '⚙️ Hyperparameter Tuning', status: 'completed', summary: 'Completed' },
+          { role: 'backtest', label: '⚙️ Backtest Engine', status: 'completed', summary: 'Completed' },
+          { role: 'validation', label: '⚙️ Validation', status: 'completed', summary: 'Completed' },
+          { role: 'governance', label: '⚙️ Governance', status: 'completed', summary: 'Completed' }
+        ],
+        status: session.status === 'completed' ? 'completed' : session.status === 'active' ? 'in_progress' : 'failed',
+        createdAt: session.created_at
+      };
+      
+      loadSession(savedSession);
+    } catch (error) {
+      console.error('Failed to load backend session:', error);
+      setToastMessage('Failed to load session from server');
+      setTimeout(() => setToastMessage(null), 3000);
+    }
   };
 
   // Start a new session
@@ -700,12 +789,12 @@ export const AIResearcher: React.FC = () => {
                 className="flex items-center gap-1.5 text-[10px] font-mono text-gray-400 hover:text-white bg-[#111] border border-[#222] px-2.5 py-1 rounded cursor-pointer uppercase transition-colors"
               >
                 <FolderKanban className="w-3 h-3" />
-                Sessions ({savedSessions.length})
+                Sessions ({savedSessions.length + backendSessions.length})
                 <ChevronDown className="w-3 h-3" />
               </button>
               
               {showSessionList && (
-                <div className="absolute top-full right-0 mt-1 w-80 bg-[#0a0a0a] border border-[#222] rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+                <div className="absolute top-full right-0 mt-1 w-80 bg-[#0a0a0a] border border-[#222] rounded-lg shadow-xl z-50 max-h-[500px] overflow-y-auto">
                   <div className="p-2 border-b border-[#1a1a1a]">
                     <button
                       onClick={() => {
@@ -718,46 +807,114 @@ export const AIResearcher: React.FC = () => {
                       Start New Session
                     </button>
                   </div>
-                  {savedSessions.length === 0 ? (
-                    <div className="p-4 text-center text-[10px] font-mono text-gray-500">
-                      No saved sessions yet
+
+                  {/* Backend Sessions Section */}
+                  <div className="p-2 border-b border-[#1a1a1a]">
+                    <div className="flex items-center justify-between px-2 pb-1">
+                      <div className="text-[9px] font-mono text-gray-500 uppercase tracking-wider">
+                        Server Sessions ({backendSessions.length})
+                      </div>
+                      <button
+                        onClick={() => queryClient.invalidateQueries({ queryKey: ['agent-sessions'] })}
+                        className="text-[9px] font-mono text-gray-500 hover:text-white cursor-pointer p-1"
+                        title="Refresh sessions"
+                      >
+                        <RefreshCw className="w-3 h-3" />
+                      </button>
                     </div>
-                  ) : (
-                    <div className="p-1">
-                      {savedSessions.map((session) => (
-                        <button
-                          key={session.id}
-                          onClick={() => loadSession(session)}
-                          className={`w-full text-left p-3 rounded hover:bg-[#1a1a1a] cursor-pointer border-b border-[#111] last:border-0 ${
-                            currentSession?.id === session.id ? 'bg-[#1a1a1a]' : ''
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className={`text-[10px] font-mono ${
-                              session.status === 'completed' ? 'text-[#2ECC8F]' :
-                              session.status === 'in_progress' ? 'text-[#f97316]' :
-                              'text-red-400'
-                            }`}>
-                              {session.status === 'completed' ? '✓ Completed' :
-                               session.status === 'in_progress' ? '⟳ In Progress' :
-                               '✗ Failed'}
-                            </span>
-                            <span className="text-[9px] font-mono text-gray-600">
-                              {new Date(session.createdAt).toLocaleDateString()}
-                            </span>
-                          </div>
-                          <div className="text-[11px] font-mono text-gray-300 truncate">
-                            {session.query.slice(0, 60)}{session.query.length > 60 ? '...' : ''}
-                          </div>
-                          {session.strategyId && (
-                            <div className="text-[9px] font-mono text-gray-500 mt-1">
-                              Strategy: {session.strategyId.slice(0, 8)}...
+                    {isLoadingBackendSessions ? (
+                      <div className="flex items-center justify-center py-4">
+                        <CircularProgress size={16} sx={{ color: '#666' }} />
+                        <span className="text-[10px] font-mono text-gray-500 ml-2">Loading sessions...</span>
+                      </div>
+                    ) : backendSessions.length === 0 ? (
+                      <div className="p-4 text-center text-[10px] font-mono text-gray-500">
+                        No server sessions found
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {backendSessions.map((session) => (
+                          <button
+                            key={session.session_id}
+                            onClick={() => loadBackendSession(session)}
+                            className={`w-full text-left p-2.5 rounded hover:bg-[#1a1a1a] cursor-pointer border-b border-[#111] last:border-0 ${
+                              currentSession?.sessionId === session.session_id ? 'bg-[#1a1a1a]' : ''
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-[9px] font-mono ${
+                                session.status === 'completed' ? 'text-[#2ECC8F]' :
+                                session.status === 'active' ? 'text-[#f97316]' :
+                                'text-red-400'
+                              }`}>
+                                {session.status === 'completed' ? '✓ Completed' :
+                                 session.status === 'active' ? '⟳ Active' :
+                                 '✗ Failed'}
+                              </span>
+                              <span className="text-[8px] font-mono text-gray-600">
+                                {new Date(session.created_at).toLocaleDateString()}
+                              </span>
                             </div>
-                          )}
-                        </button>
-                      ))}
+                            <div className="text-[10px] font-mono text-gray-300 truncate">
+                              {session.title || session.query?.slice(0, 50) || `Session ${session.session_id.slice(0, 8)}...`}
+                            </div>
+                            {session.strategy_id && (
+                              <div className="text-[8px] font-mono text-gray-500 mt-0.5">
+                                Strategy: {session.strategy_id.slice(0, 8)}...
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Local Sessions Section */}
+                  <div className="p-2">
+                    <div className="text-[9px] font-mono text-gray-500 uppercase tracking-wider px-2 pb-1">
+                      Local Sessions ({savedSessions.length})
                     </div>
-                  )}
+                    {savedSessions.length === 0 ? (
+                      <div className="p-4 text-center text-[10px] font-mono text-gray-500">
+                        No local sessions saved
+                      </div>
+                    ) : (
+                      <div className="space-y-1">
+                        {savedSessions.map((session) => (
+                          <button
+                            key={session.id}
+                            onClick={() => loadSession(session)}
+                            className={`w-full text-left p-2.5 rounded hover:bg-[#1a1a1a] cursor-pointer border-b border-[#111] last:border-0 ${
+                              currentSession?.id === session.id ? 'bg-[#1a1a1a]' : ''
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`text-[9px] font-mono ${
+                                session.status === 'completed' ? 'text-[#2ECC8F]' :
+                                session.status === 'in_progress' ? 'text-[#f97316]' :
+                                'text-red-400'
+                              }`}>
+                                {session.status === 'completed' ? '✓ Completed' :
+                                 session.status === 'in_progress' ? '⟳ In Progress' :
+                                 '✗ Failed'}
+                              </span>
+                              <span className="text-[8px] font-mono text-gray-600">
+                                {new Date(session.createdAt).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <div className="text-[10px] font-mono text-gray-300 truncate">
+                              {session.query.slice(0, 50)}{session.query.length > 50 ? '...' : ''}
+                            </div>
+                            {session.strategyId && (
+                              <div className="text-[8px] font-mono text-gray-500 mt-0.5">
+                                Strategy: {session.strategyId.slice(0, 8)}...
+                              </div>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
