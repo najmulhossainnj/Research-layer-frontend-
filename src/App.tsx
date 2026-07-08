@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { quantTheme } from './theme';
 import { useUIStore } from './store/useUIStore';
+import { API_BASE_URL } from './api/config';
 
 // Components
 import { GlobalHeader } from './components/common/GlobalHeader';
@@ -31,6 +32,38 @@ const queryClient = new QueryClient({
 
 export function AppContent() {
   const { activeWorkspace } = useUIStore();
+  
+  // Keep both backends awake with periodic health checks
+  const keepAliveInterval = useRef<NodeJS.Timeout | null>(null);
+  
+  useEffect(() => {
+    // Ping both backends every 5 minutes to keep them awake
+    const pingBackends = async () => {
+      try {
+        // Main backend (agentic system)
+        await fetch(`${API_BASE_URL}/health`, { method: 'GET', mode: 'no-cors' });
+        
+        // Celery worker backend
+        await fetch('https://hedge-fund-backend-93gh.onrender.com/health', { method: 'GET', mode: 'no-cors' });
+        
+        console.log('[KeepAlive] Both backends pinged successfully');
+      } catch (err) {
+        console.warn('[KeepAlive] Failed to ping backends:', err);
+      }
+    };
+    
+    // Initial ping
+    pingBackends();
+    
+    // Set up interval to ping every 5 minutes
+    keepAliveInterval.current = setInterval(pingBackends, 5 * 60 * 1000);
+    
+    return () => {
+      if (keepAliveInterval.current) {
+        clearInterval(keepAliveInterval.current);
+      }
+    };
+  }, []);
 
   const renderWorkspace = () => {
     switch (activeWorkspace) {
