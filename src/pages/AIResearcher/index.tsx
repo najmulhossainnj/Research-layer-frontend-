@@ -37,7 +37,9 @@ import {
   TrendingUp,
   AlertTriangle,
   Play,
-  ArrowRight
+  ArrowRight,
+  MessageSquare,
+  ChevronDown
 } from 'lucide-react';
 
 interface Message {
@@ -55,9 +57,44 @@ interface AgentStep {
   summary: string;
 }
 
+interface SavedSession {
+  id: string;
+  query: string;
+  sessionId: string;
+  strategyId: string;
+  messages: Message[];
+  liveContext: any;
+  agentSteps: AgentStep[];
+  status: 'in_progress' | 'completed' | 'failed';
+  createdAt: string;
+}
+
+// Load saved sessions from localStorage
+const loadSavedSessions = (): SavedSession[] => {
+  try {
+    const saved = localStorage.getItem('ai_researcher_sessions');
+    return saved ? JSON.parse(saved) : [];
+  } catch {
+    return [];
+  }
+};
+
+// Save sessions to localStorage
+const saveSessions = (sessions: SavedSession[]) => {
+  try {
+    localStorage.setItem('ai_researcher_sessions', JSON.stringify(sessions));
+  } catch (e) {
+    console.error('Failed to save sessions:', e);
+  }
+};
+
 export const AIResearcher: React.FC = () => {
   const queryClient = useQueryClient();
   const store = useResearchSessionStore();
+  
+  // Saved sessions for persistence
+  const [savedSessions, setSavedSessions] = useState<SavedSession[]>(loadSavedSessions);
+  const [showSessionList, setShowSessionList] = useState(false);
   const { setWorkspace, selectStrategy } = useUIStore();
 
   // Fetch strategies
@@ -67,16 +104,15 @@ export const AIResearcher: React.FC = () => {
   });
 
   // Selected session context state
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(store.sessionId || 'sess_a3f2c1d8');
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [currentQuery, setCurrentQuery] = useState<string>('');
   const [input, setInput] = useState('');
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      role: 'assistant',
-      content: 'Welcome to the **Agentic Quant Research Desk**. Describe the trading strategy you want to construct, and our multi-agent pipeline will discover features, train models, execute backtests, and run formal validation audits.',
-      timestamp: new Date().toLocaleTimeString()
-    }
-  ]);
+  
+  // Initialize with empty messages (will be populated from saved session or welcome)
+  const [messages, setMessages] = useState<Message[]>([]);
+  
+  // Current session state - will be populated from saved session
+  const [currentSession, setCurrentSession] = useState<SavedSession | null>(null);
 
   // Simulated live context panel state
   const [liveContext, setLiveContext] = useState<{
@@ -146,6 +182,102 @@ export const AIResearcher: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming, agentSteps]);
 
+  // Initialize on mount - show welcome or load last session
+  useEffect(() => {
+    const sessions = loadSavedSessions();
+    if (sessions.length > 0) {
+      // Load the most recent session
+      const lastSession = sessions[0];
+      loadSession(lastSession);
+    } else {
+      // Show welcome message
+      setMessages([{
+        id: 'welcome',
+        role: 'assistant',
+        content: 'Welcome to the **Agentic Quant Research Desk**. Describe the trading strategy you want to construct, and our multi-agent pipeline will discover features, train models, execute backtests, and run formal validation audits.',
+        timestamp: new Date().toLocaleTimeString()
+      }]);
+    }
+  }, []);
+
+  // Load a saved session
+  const loadSession = (session: SavedSession) => {
+    setCurrentSession(session);
+    setActiveSessionId(session.sessionId);
+    setCurrentQuery(session.query);
+    setMessages(session.messages);
+    setLiveContext(session.liveContext);
+    setAgentSteps(session.agentSteps);
+    setIsPromoted(session.status === 'completed');
+    setShowSessionList(false);
+  };
+
+  // Start a new session
+  const startNewSession = () => {
+    setCurrentSession(null);
+    setActiveSessionId(null);
+    setCurrentQuery('');
+    setMessages([{
+      id: 'welcome',
+      role: 'assistant',
+      content: 'Welcome to the **Agentic Quant Research Desk**. Describe the trading strategy you want to construct, and our multi-agent pipeline will discover features, train models, execute backtests, and run formal validation audits.',
+      timestamp: new Date().toLocaleTimeString()
+    }]);
+    setLiveContext({
+      strategyName: '',
+      status: 'empty',
+      universe: [],
+      timeframe: '',
+      dateRange: '',
+      features: [],
+      model: '',
+      modelParams: '',
+      backtest: null,
+      validation: null,
+      governance: null
+    });
+    setAgentSteps([
+      { role: 'market_data', label: '🔬 Market Data', status: 'pending', summary: 'Awaiting data ingestion' },
+      { role: 'feature_discovery', label: '⚙️ Feature Discovery', status: 'pending', summary: 'Awaiting feature extraction' },
+      { role: 'model_discovery', label: '⚙️ Model Discovery', status: 'pending', summary: 'Awaiting model selection' },
+      { role: 'hyperparameter', label: '⚙️ Hyperparameter Tuning', status: 'pending', summary: 'Awaiting parameter tuning' },
+      { role: 'backtest', label: '⚙️ Backtest Engine', status: 'pending', summary: 'Awaiting backtest execution' },
+      { role: 'validation', label: '⚙️ Validation', status: 'pending', summary: 'Awaiting walk-forward & CPCV' },
+      { role: 'governance', label: '⚙️ Governance', status: 'pending', summary: 'Awaiting governance review' }
+    ]);
+    setShowSessionList(false);
+  };
+
+  // Save current session
+  const saveCurrentSession = (query: string, sessionId: string, strategyId: string) => {
+    const sessions = loadSavedSessions();
+    const newSession: SavedSession = {
+      id: currentSession?.id || `session_${Date.now()}`,
+      query,
+      sessionId,
+      strategyId,
+      messages,
+      liveContext,
+      agentSteps,
+      status: isStreaming ? 'in_progress' : 'completed',
+      createdAt: currentSession?.createdAt || new Date().toISOString()
+    };
+    
+    // Update or add session
+    const existingIndex = sessions.findIndex(s => s.id === newSession.id);
+    if (existingIndex >= 0) {
+      sessions[existingIndex] = newSession;
+    } else {
+      sessions.unshift(newSession); // Add to beginning
+    }
+    
+    // Keep only last 10 sessions
+    const trimmedSessions = sessions.slice(0, 10);
+    saveSessions(trimmedSessions);
+    setSavedSessions(trimmedSessions);
+    setCurrentSession(newSession);
+  };
+
   // Copy utility
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -157,6 +289,11 @@ export const AIResearcher: React.FC = () => {
   const runRealResearchPipeline = async (query: string) => {
     setIsStreaming(true);
     setIsPromoted(false);
+    setCurrentQuery(query);
+    
+    // Create a new session ID
+    const newSessionId = `session_${Date.now()}`;
+    setActiveSessionId(newSessionId);
     
     // Reset live context
     setLiveContext({
@@ -304,6 +441,42 @@ export const AIResearcher: React.FC = () => {
                 status: 'completed'
               }))
             );
+
+            // Save the session
+            const completedSession: SavedSession = {
+              id: currentSession?.id || newSessionId,
+              query: query,
+              sessionId: sessionId,
+              strategyId: strategyId || '',
+              messages: [...messages, {
+                id: `step_complete_${Date.now()}`,
+                role: 'assistant',
+                content: finalContext.validation_passed
+                  ? `✅ **Research complete — Strategy validated!**`
+                  : `⚠️ **Research complete — Validation issues detected**`,
+                timestamp: new Date().toLocaleTimeString()
+              }],
+              liveContext: {
+                ...liveContext,
+                status: finalContext.validation_passed ? 'validated' : 'building',
+                strategyName: finalContext.name || `Strategy ${strategyId}`,
+              },
+              agentSteps: agentSteps.map(s => ({ ...s, status: 'completed' })),
+              status: 'completed',
+              createdAt: currentSession?.createdAt || new Date().toISOString()
+            };
+            
+            // Save to localStorage
+            const sessions = loadSavedSessions();
+            const existingIndex = sessions.findIndex(s => s.id === completedSession.id);
+            if (existingIndex >= 0) {
+              sessions[existingIndex] = completedSession;
+            } else {
+              sessions.unshift(completedSession);
+            }
+            saveSessions(sessions.slice(0, 10));
+            setSavedSessions(sessions.slice(0, 10));
+            setCurrentSession(completedSession);
 
             // Update store
             store.mergeContext({
@@ -514,38 +687,86 @@ export const AIResearcher: React.FC = () => {
             <span className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-[#f97316] animate-pulse' : 'bg-[#2ECC8F]'}`}></span>
             <div>
               <span className="text-[11px] font-bold text-white tracking-wider uppercase font-sans">AI RESEARCH COMPANION</span>
-              <span className="text-[9px] font-mono text-gray-500 block">Session ID: a3f2c1d8</span>
+              <span className="text-[9px] font-mono text-gray-500 block">
+                {activeSessionId ? `Session: ${activeSessionId.slice(0, 12)}...` : 'No active session'}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Session Selector */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSessionList(!showSessionList)}
+                className="flex items-center gap-1.5 text-[10px] font-mono text-gray-400 hover:text-white bg-[#111] border border-[#222] px-2.5 py-1 rounded cursor-pointer uppercase transition-colors"
+              >
+                <FolderKanban className="w-3 h-3" />
+                Sessions ({savedSessions.length})
+                <ChevronDown className="w-3 h-3" />
+              </button>
+              
+              {showSessionList && (
+                <div className="absolute top-full right-0 mt-1 w-80 bg-[#0a0a0a] border border-[#222] rounded-lg shadow-xl z-50 max-h-96 overflow-y-auto">
+                  <div className="p-2 border-b border-[#1a1a1a]">
+                    <button
+                      onClick={() => {
+                        startNewSession();
+                        setShowSessionList(false);
+                      }}
+                      className="w-full flex items-center gap-2 text-[11px] font-mono text-[#2ECC8F] hover:bg-[#1a1a1a] px-3 py-2 rounded cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Start New Session
+                    </button>
+                  </div>
+                  {savedSessions.length === 0 ? (
+                    <div className="p-4 text-center text-[10px] font-mono text-gray-500">
+                      No saved sessions yet
+                    </div>
+                  ) : (
+                    <div className="p-1">
+                      {savedSessions.map((session) => (
+                        <button
+                          key={session.id}
+                          onClick={() => loadSession(session)}
+                          className={`w-full text-left p-3 rounded hover:bg-[#1a1a1a] cursor-pointer border-b border-[#111] last:border-0 ${
+                            currentSession?.id === session.id ? 'bg-[#1a1a1a]' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-[10px] font-mono ${
+                              session.status === 'completed' ? 'text-[#2ECC8F]' :
+                              session.status === 'in_progress' ? 'text-[#f97316]' :
+                              'text-red-400'
+                            }`}>
+                              {session.status === 'completed' ? '✓ Completed' :
+                               session.status === 'in_progress' ? '⟳ In Progress' :
+                               '✗ Failed'}
+                            </span>
+                            <span className="text-[9px] font-mono text-gray-600">
+                              {new Date(session.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          <div className="text-[11px] font-mono text-gray-300 truncate">
+                            {session.query.slice(0, 60)}{session.query.length > 60 ? '...' : ''}
+                          </div>
+                          {session.strategyId && (
+                            <div className="text-[9px] font-mono text-gray-500 mt-1">
+                              Strategy: {session.strategyId.slice(0, 8)}...
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            
             <button
-              onClick={() => {
-                setMessages([
-                  {
-                    id: 'welcome',
-                    role: 'assistant',
-                    content: 'Desk re-initialized. Describe the trading strategy you want to construct, and our multi-agent pipeline will deploy.',
-                    timestamp: new Date().toLocaleTimeString()
-                  }
-                ]);
-                setLiveContext({
-                  strategyName: '',
-                  status: 'empty',
-                  universe: [],
-                  timeframe: '',
-                  dateRange: '',
-                  features: [],
-                  model: '',
-                  modelParams: '',
-                  backtest: null,
-                  validation: null,
-                  governance: null
-                });
-                setIsPromoted(false);
-              }}
+              onClick={startNewSession}
               className="text-[10px] font-mono text-gray-500 hover:text-white bg-[#111] border border-[#222] px-2.5 py-1 rounded cursor-pointer uppercase transition-colors"
             >
-              Clear Session
+              <Plus className="w-3 h-3" />
             </button>
           </div>
         </div>
