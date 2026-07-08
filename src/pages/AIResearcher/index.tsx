@@ -128,15 +128,15 @@ export const AIResearcher: React.FC = () => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isPromoted, setIsPromoted] = useState(false);
 
-  // Sub-agent timeline state
+  // Sub-agent timeline state - matches backend AgentRole enum
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([
-    { role: 'MarketDataAgent', label: '🔬 Research Setup', status: 'pending', summary: 'Awaiting initialization' },
-    { role: 'FeatureDiscoveryAgent', label: '⚙️ Feature Discovery', status: 'pending', summary: 'Awaiting feature parameters' },
-    { role: 'ModelTrainingAgent', label: '⚙️ Model Discovery', status: 'pending', summary: 'Awaiting algorithm selection' },
-    { role: 'HyperparameterTuningAgent', label: '⚙️ Tuning Engine', status: 'pending', summary: 'Awaiting parameter bounds' },
-    { role: 'BacktestAgent', label: '⚙️ Backtest Engine', status: 'pending', summary: 'Awaiting strategy signals' },
-    { role: 'ValidationAgent', label: '⚙️ Validation center', status: 'pending', summary: 'Awaiting validation protocols' },
-    { role: 'RiskAssessmentAgent', label: '⚙️ Governance check', status: 'pending', summary: 'Awaiting policy checks' }
+    { role: 'market_data', label: '🔬 Market Data', status: 'pending', summary: 'Awaiting data ingestion' },
+    { role: 'feature_discovery', label: '⚙️ Feature Discovery', status: 'pending', summary: 'Awaiting feature extraction' },
+    { role: 'model_discovery', label: '⚙️ Model Discovery', status: 'pending', summary: 'Awaiting model selection' },
+    { role: 'hyperparameter', label: '⚙️ Hyperparameter Tuning', status: 'pending', summary: 'Awaiting parameter tuning' },
+    { role: 'backtest', label: '⚙️ Backtest Engine', status: 'pending', summary: 'Awaiting backtest execution' },
+    { role: 'validation', label: '⚙️ Validation', status: 'pending', summary: 'Awaiting walk-forward & CPCV' },
+    { role: 'governance', label: '⚙️ Governance', status: 'pending', summary: 'Awaiting governance review' }
   ]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -153,11 +153,12 @@ export const AIResearcher: React.FC = () => {
     setTimeout(() => setCopiedTextId(null), 2000);
   };
 
-  // Run the real backend-powered research pipeline
+  // Run the real backend-powered research pipeline using SSE streaming
   const runRealResearchPipeline = async (query: string) => {
     setIsStreaming(true);
     setIsPromoted(false);
     
+    // Reset live context
     setLiveContext({
       strategyName: 'Initializing Pipeline...',
       status: 'building',
@@ -172,126 +173,301 @@ export const AIResearcher: React.FC = () => {
       governance: null
     });
 
+    // Reset agent steps to initial state
     setAgentSteps([
-      { role: 'MarketDataAgent', label: '🔬 Research Setup', status: 'running', summary: 'Submitting query to agents system...' },
-      { role: 'FeatureDiscoveryAgent', label: '⚙️ Feature Discovery', status: 'pending', summary: 'Awaiting pipeline setup' },
-      { role: 'ModelTrainingAgent', label: '⚙️ Model Discovery', status: 'pending', summary: 'Awaiting features' },
-      { role: 'HyperparameterTuningAgent', label: '⚙️ Tuning Engine', status: 'pending', summary: 'Awaiting model' },
-      { role: 'BacktestAgent', label: '⚙️ Backtest Engine', status: 'pending', summary: 'Awaiting backtest' },
-      { role: 'ValidationAgent', label: '⚙️ Validation center', status: 'pending', summary: 'Awaiting validation protocols' },
-      { role: 'RiskAssessmentAgent', label: '⚙️ Governance check', status: 'pending', summary: 'Awaiting audits' }
+      { role: 'market_data', label: '🔬 Market Data', status: 'running', summary: 'Starting pipeline...' },
+      { role: 'feature_discovery', label: '⚙️ Feature Discovery', status: 'pending', summary: 'Awaiting feature extraction' },
+      { role: 'model_discovery', label: '⚙️ Model Discovery', status: 'pending', summary: 'Awaiting model selection' },
+      { role: 'hyperparameter', label: '⚙️ Hyperparameter Tuning', status: 'pending', summary: 'Awaiting parameter tuning' },
+      { role: 'backtest', label: '⚙️ Backtest Engine', status: 'pending', summary: 'Awaiting backtest execution' },
+      { role: 'validation', label: '⚙️ Validation', status: 'pending', summary: 'Awaiting walk-forward & CPCV' },
+      { role: 'governance', label: '⚙️ Governance', status: 'pending', summary: 'Awaiting governance review' }
     ]);
 
-    try {
-      // 1. Send the query to submitResearchQuery to initialize research session
-      const initRes = await submitResearchQuery({ query });
-      const sessionId = initRes.session_id || initRes.id;
-      const strategyId = initRes.strategy_id;
-      setActiveSessionId(sessionId);
+    // Use SSE streaming via EventSource
+    const eventSource = new EventSource(`${API_BASE_URL}/agents/research/stream?query=${encodeURIComponent(query)}`);
 
-      // Add immediate message from the system indicating research started
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `step_init_${Date.now()}`,
-          role: 'assistant',
-          content: `🔬 **Research session started**\nSession ID: \`${sessionId}\` · Strategy ID: \`${strategyId || 'Pending'}\` has been created.\nNow starting agentic orchestration pipeline...`,
-          timestamp: new Date().toLocaleTimeString()
-        }
-      ]);
+    let sessionId = '';
+    let strategyId = '';
 
-      setAgentSteps(prev => prev.map(s => 
-        s.role === 'MarketDataAgent' ? { ...s, status: 'completed', summary: 'Session initialized.' } :
-        s.role === 'FeatureDiscoveryAgent' ? { ...s, status: 'running', summary: 'Running feature extraction agents...' } : s
-      ));
-
-      // 2. Chat with agent to get the detailed analysis
-      const chatRes = await chatWithAgent({ query, session_id: sessionId });
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `step_chat_${Date.now()}`,
-          role: 'assistant',
-          content: chatRes.response || 'No response returned from the agentic server.',
-          timestamp: new Date().toLocaleTimeString()
-        }
-      ]);
-
-      setAgentSteps(prev => prev.map(s => 
-        s.role === 'FeatureDiscoveryAgent' ? { ...s, status: 'completed', summary: 'Features resolved.' } :
-        s.role === 'ModelTrainingAgent' ? { ...s, status: 'running', summary: 'Evaluating models...' } : s
-      ));
-
-      // 3. Fetch the session context to populate the Live Telemetry Panel
-      const context = await getSessionContext(sessionId);
-      if (context) {
-        setLiveContext({
-          strategyName: context.name || `Strategy Context ${strategyId || ''}`,
-          status: context.validation_passed ? 'validated' : 'building',
-          universe: context.symbols || ['AAPL'],
-          timeframe: context.timeframe || '1d',
-          dateRange: `${context.start_date || '2020-01-01'} → ${context.end_date || '2024-01-01'}`,
-          features: context.feature_ids || [],
-          model: context.best_model_plugin || '',
-          modelParams: context.model_id ? `Model ID: ${context.model_id}` : '',
-          backtest: context.backtest_ids && context.backtest_ids.length > 0 ? {
-            sharpe: context.conviction_score ? (context.conviction_score * 1.5).toFixed(2) : '1.42',
-            cagr: '18.3%',
-            maxDrawdown: '14.2%',
-            winRate: '58.1%',
-            bars: '1006',
-            trades: '312'
-          } : null,
-          validation: {
-            wf: context.validation_passed ? '✓ Passed' : 'In Progress',
-            cpcv: '✓ Active',
-            pbo: '0.27',
-            deflatedSharpe: '0.94',
-            overfitting: '1.6'
-          },
-          governance: {
-            status: context.validation_passed ? 'Passed' : 'Pending',
-            warnings: context.governance_flags || [],
-            critical: []
-          }
-        });
-
-        // Set remaining agent steps to completed
-        setAgentSteps(prev => prev.map(s => ({
-          ...s,
-          status: 'completed',
-          summary: 'Successfully resolved via real agent APIs.'
-        })));
-
-        // Merge context in the local store
-        store.mergeContext({
-          sessionId: sessionId,
-          strategyId: strategyId,
-          featureIds: context.feature_ids || [],
-          modelId: context.model_id,
-          backtestIds: context.backtest_ids || [],
-          bestModelPlugin: context.best_model_plugin,
-          governanceFlags: context.governance_flags || [],
-          validationPassed: context.validation_passed || false,
-          convictionScore: context.conviction_score || 0.8
-        });
+    // Add initial message
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `step_init_${Date.now()}`,
+        role: 'assistant',
+        content: `🔬 **Research session starting**\n\n*"${query}"*\n\nInitializing agentic orchestration pipeline...`,
+        timestamp: new Date().toLocaleTimeString()
       }
+    ]);
 
-    } catch (err: any) {
-      console.error('Real agent pipeline error:', err);
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        switch (data.event) {
+          case 'start':
+            sessionId = data.session_id;
+            strategyId = data.strategy_id || '';
+            setActiveSessionId(sessionId);
+            
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `step_${data.event}_${Date.now()}`,
+                role: 'assistant',
+                content: `✅ **Research session started**\n\nSession ID: \`${sessionId}\`\nStrategy ID: \`${strategyId || 'Creating...'}\`\n\nStarting agentic orchestration pipeline...`,
+                timestamp: new Date().toLocaleTimeString()
+              }
+            ]);
+            break;
+
+          case 'agent_start':
+            setAgentSteps((prev) =>
+              prev.map((s) =>
+                s.role === data.role
+                  ? { ...s, status: 'running', summary: data.message || `Running ${data.role}...` }
+                  : s
+              )
+            );
+            break;
+
+          case 'agent_done':
+            // Format the result message based on agent type
+            const resultMessage = formatAgentResult(data.role, data);
+            
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `step_${data.role}_${Date.now()}`,
+                role: 'assistant',
+                content: resultMessage,
+                timestamp: new Date().toLocaleTimeString()
+              }
+            ]);
+
+            // Update agent step status
+            setAgentSteps((prev) =>
+              prev.map((s) =>
+                s.role === data.role
+                  ? {
+                      ...s,
+                      status: data.success ? 'completed' : 'error',
+                      summary: data.summary || (data.success ? 'Completed' : 'Failed')
+                    }
+                  : s
+              )
+            );
+
+            // Update live context based on agent results
+            updateLiveContext(data.role, data);
+            break;
+
+          case 'pipeline_halted':
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `step_halted_${Date.now()}`,
+                role: 'assistant',
+                content: `🛑 **Pipeline halted — critical governance flags**\n\n${data.reason || 'Unknown reason'}\n\n${data.flags?.map((f: string) => `- ${f}`).join('\n') || ''}\n\nThe strategy has been blocked from promotion.`,
+                timestamp: new Date().toLocaleTimeString()
+              }
+            ]);
+            break;
+
+          case 'complete':
+            const finalContext = data.context || {};
+            
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `step_complete_${Date.now()}`,
+                role: 'assistant',
+                content: finalContext.validation_passed
+                  ? `✅ **Research complete — Strategy validated!**\n\nThe strategy has passed all validation checks and is ready for promotion.`
+                  : `⚠️ **Research complete — Validation issues detected**\n\nThe strategy requires attention before promotion. Check the validation results above.`,
+                timestamp: new Date().toLocaleTimeString()
+              }
+            ]);
+
+            // Update live context with final state
+            setLiveContext((prev) => ({
+              ...prev,
+              status: finalContext.validation_passed ? 'validated' : 'building',
+              strategyName: finalContext.name || `Strategy ${strategyId}`,
+            }));
+
+            // Mark all steps complete
+            setAgentSteps((prev) =>
+              prev.map((s) => ({
+                ...s,
+                status: 'completed'
+              }))
+            );
+
+            // Update store
+            store.mergeContext({
+              sessionId: sessionId,
+              strategyId: strategyId,
+              featureIds: finalContext.feature_ids || [],
+              modelId: finalContext.model_id,
+              backtestIds: finalContext.backtest_ids || [],
+              bestModelPlugin: finalContext.best_model_plugin,
+              governanceFlags: finalContext.governance_flags || [],
+              validationPassed: finalContext.validation_passed || false,
+              convictionScore: finalContext.conviction_score || 0.8
+            });
+
+            eventSource.close();
+            setIsStreaming(false);
+            break;
+        }
+      } catch (err) {
+        console.error('SSE parse error:', err);
+      }
+    };
+
+    eventSource.onerror = (err) => {
+      console.error('SSE error:', err);
+      eventSource.close();
+      
       setMessages((prev) => [
         ...prev,
         {
           id: `step_err_${Date.now()}`,
           role: 'assistant',
-          content: `🛑 **Agentic Backend API Error**\n\nFailed to establish connection or run tasks on the agentic system. Please ensure the backend service is running and properly configured at \`${API_BASE_URL}\`.\n\n*Details:* \`${err.message || err.toString()}\``,
+          content: `🛑 **Connection Error**\n\nFailed to receive updates from the agentic system. The pipeline may have been interrupted.\n\nPlease try again or check that the backend is running at \`${API_BASE_URL}\`.`,
           timestamp: new Date().toLocaleTimeString()
         }
       ]);
-      setAgentSteps(prev => prev.map(s => s.status === 'running' ? { ...s, status: 'error', summary: 'Connection Failed' } : s));
-    } finally {
+      
+      setAgentSteps((prev) =>
+        prev.map((s) =>
+          s.status === 'running' ? { ...s, status: 'error', summary: 'Connection lost' } : s
+        )
+      );
       setIsStreaming(false);
+    };
+  };
+
+  // Format agent result into a readable message
+  const formatAgentResult = (role: string, data: any): string => {
+    const { success, summary, details, errors } = data;
+    const prefix = success ? '✓' : '✗';
+    
+    switch (role) {
+      case 'feature_discovery':
+        if (!success) return `⚙️ **Feature Discovery**\n\n${prefix} ${summary}\n\n${errors?.join(', ') || 'Unknown error'}`;
+        
+        const candidates = details?.candidates || [];
+        const featureNames = candidates.map((f: any) => `\`${f.plugin_key}\``).join(', ');
+        
+        return `⚙️ **Feature Discovery complete**\n\n${prefix} ${summary}\n\n**Discovered ${candidates.length} candidate features:**\n${featureNames}\n\n${details?.shap_importance && Object.keys(details.shap_importance).length > 0 
+  ? `**Top signals:** ${Object.entries(details.shap_importance).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(', ')}`
+  : ''}`;
+
+      case 'model_discovery':
+        if (!success) return `⚙️ **Model Discovery**\n\n${prefix} ${summary}\n\n${errors?.join(', ') || 'Unknown error'}`;
+        
+        const leaderboard = details?.leaderboard || [];
+        const selected = details?.selected || 'Unknown';
+        
+        return `⚙️ **Model Discovery complete**\n\n${prefix} ${summary}\n\n**Leaderboard:**\n${leaderboard.map((m: any, i: number) => `${i + 1}. \`${m.plugin_key}\` — ${m.score !== null ? `Score: ${m.score}` : 'No score'}`).join('\n')}\n\n**Selected:** ${selected}`;
+
+      case 'hyperparameter':
+        if (!success) return `⚙️ **Hyperparameter Tuning**\n\n${prefix} ${summary}\n\n${errors?.join(', ') || 'Unknown error'}`;
+        
+        const bestParams = details?.best_params || {};
+        const paramStr = Object.entries(bestParams).map(([k, v]) => `${k}=${v}`).join(', ');
+        
+        return `⚙️ **Hyperparameter Tuning complete**\n\n${prefix} ${summary}\n\n**Best parameters:** ${paramStr || 'Using defaults'}`;
+
+      case 'backtest':
+        if (!success) return `⚙️ **Backtest**\n\n${prefix} ${summary}\n\n${errors?.join(', ') || 'Unknown error'}`;
+        
+        const metrics = details?.metrics || {};
+        return `⚙️ **Backtest complete**\n\n${prefix} ${summary}\n\n**Metrics:**\n- Sharpe: **${metrics.sharpe_ratio || 'N/A'}**\n- CAGR: **${metrics.cagr || 'N/A'}**\n- Max Drawdown: **${metrics.max_drawdown || 'N/A'}**\n- Win Rate: **${metrics.win_rate || 'N/A'}**\n\n${metrics.total_trades ? `Trades: ${metrics.total_trades}` : ''}`;
+
+      case 'validation':
+        if (!success) return `⚙️ **Validation**\n\n${prefix} ${summary}\n\n${errors?.join(', ') || 'Unknown error'}`;
+        
+        const wf = details?.walk_forward || {};
+        const cpcv = details?.cpcv || {};
+        
+        return `⚙️ **Validation complete**\n\n${prefix} ${summary}\n\n**Walk-Forward (5 folds, rolling):**\n- OOS Sharpe: **${wf.mean_oos_sharpe || 'N/A'}**\n- Profitable folds: **${wf.profitable_folds || 'N/A'}**\n\n**CPCV:**\n- PBO: **${cpcv.pbo || 'N/A'}**\n- Deflated Sharpe: **${cpcv.deflated_sharpe || 'N/A'}**\n\n**Overfitting score:** ${details?.overfitting_score || 'N/A'}`;
+
+      case 'governance':
+        const flags = details?.governance_flags || [];
+        const warnings = flags.filter((f: string) => f.includes('WARNING') || f.includes('⚠️'));
+        const critical = flags.filter((f: string) => f.includes('CRITICAL'));
+        
+        return `⚙️ **Governance check complete**\n\n${critical.length > 0 ? '🛑 **CRITICAL ISSUES:**\n' + critical.map((f: string) => `- ${f}`).join('\n') + '\n\n' : ''}${warnings.length > 0 ? '⚠️ **Warnings:**\n' + warnings.map((f: string) => `- ${f}`).join('\n') + '\n\n' : ''}${flags.length === 0 ? '✅ No issues detected' : ''}`;
+
+      default:
+        return `${prefix} **${role}**\n\n${prefix} ${summary}\n\n${errors?.length > 0 ? `Errors: ${errors.join(', ')}` : ''}`;
     }
+  };
+
+  // Update live context panel based on agent results
+  const updateLiveContext = (role: string, data: any) => {
+    setLiveContext((prev) => {
+      const updates: any = { ...prev };
+      
+      switch (role) {
+        case 'feature_discovery':
+          updates.features = data.details?.candidates?.map((f: any) => f.plugin_key) || [];
+          break;
+          
+        case 'model_discovery':
+          updates.model = data.details?.selected || '';
+          break;
+          
+        case 'hyperparameter':
+          updates.modelParams = data.details?.best_params 
+            ? Object.entries(data.details.best_params).map(([k, v]) => `${k}=${v}`).join(', ')
+            : '';
+          break;
+          
+        case 'backtest':
+          if (data.details?.metrics) {
+            const m = data.details.metrics;
+            updates.backtest = {
+              sharpe: m.sharpe_ratio || 'N/A',
+              cagr: m.cagr || 'N/A',
+              maxDrawdown: m.max_drawdown || 'N/A',
+              winRate: m.win_rate || 'N/A',
+              bars: m.total_bars || 'N/A',
+              trades: m.total_trades || 'N/A'
+            };
+          }
+          break;
+          
+        case 'validation':
+          if (data.details) {
+            updates.validation = {
+              wf: data.details.walk_forward?.passed ? '✓ Passed' : 'Failed',
+              cpcv: data.details.cpcv?.skipped ? 'Skipped' : '✓ Active',
+              pbo: data.details.cpcv?.pbo || 'N/A',
+              deflatedSharpe: data.details.cpcv?.deflated_sharpe || 'N/A',
+              overfitting: data.details.overfitting_score || 'N/A'
+            };
+          }
+          break;
+          
+        case 'governance':
+          if (data.details?.governance_flags) {
+            const flags = data.details.governance_flags;
+            updates.governance = {
+              status: data.success ? 'Passed' : 'Failed',
+              warnings: flags.filter((f: string) => f.includes('WARNING')),
+              critical: flags.filter((f: string) => f.includes('CRITICAL'))
+            };
+          }
+          break;
+      }
+      
+      return updates;
+    });
   };
 
   const handleSend = () => {
