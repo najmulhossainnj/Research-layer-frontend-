@@ -95,13 +95,20 @@ export const deleteFeature = async (id: string): Promise<any> => {
   return res.data;
 };
 
-export const generateFeatureAsync = async (id: string): Promise<any> => {
-  const res = await api.post(`/features/${id}/generate`);
+export interface FeatureGenerateRequestBody {
+  symbol: string;
+  timeframe?: string;
+  start_date: string;
+  end_date: string;
+}
+
+export const generateFeatureAsync = async (id: string, body: FeatureGenerateRequestBody): Promise<any> => {
+  const res = await api.post(`/features/${id}/generate`, body);
   return res.data;
 };
 
-export const regenerateFeature = async (id: string): Promise<any> => {
-  const res = await api.post(`/features/${id}/regenerate`);
+export const regenerateFeature = async (id: string, body: FeatureGenerateRequestBody): Promise<any> => {
+  const res = await api.post(`/features/${id}/regenerate`, body);
   return res.data;
 };
 
@@ -261,7 +268,7 @@ export const getModelSearchSpaces = async (): Promise<any> => {
   return res.data;
 };
 
-export const getAvailablePlugins = async (domain: 'features' | 'models' | 'signals'): Promise<any> => {
+export const getAvailablePlugins = async (domain: 'features' | 'models' | 'signals'): Promise<{ plugins: string[] }> => {
   let endpoint = `/plugins/${domain}`;
   if (domain === 'features') {
     endpoint = '/features/plugins/available';
@@ -270,8 +277,23 @@ export const getAvailablePlugins = async (domain: 'features' | 'models' | 'signa
   } else if (domain === 'signals') {
     endpoint = '/signals/plugins/available';
   }
-  const res = await api.get(endpoint);
-  return res.data;
+  const res = await api.get<any>(endpoint);
+  // Handle various response formats the backend might return
+  const data = res.data;
+  if (Array.isArray(data)) {
+    return { plugins: data };
+  } else if (data && typeof data === 'object') {
+    if (Array.isArray(data.plugins)) {
+      return data;
+    } else if (Array.isArray(data.items)) {
+      return { plugins: data.items };
+    } else if (Array.isArray(data.values)) {
+      return { plugins: data.values };
+    }
+    // If it's an object with keys, return the keys as plugins
+    return { plugins: Object.keys(data) };
+  }
+  return { plugins: [] };
 };
 
 export const getTaskStatus = async (taskId: string): Promise<TaskResponse> => {
