@@ -12,9 +12,10 @@ import {
   CPCVResult,
   TaskResponse
 } from '../types';
+import { API_BASE_URL } from './config';
 
 export const api = axios.create({
-  baseURL: (import.meta as any).env?.VITE_API_BASE_URL ?? 'https://hedge-fund-backend-core.onrender.com/api/v1',
+  baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
   timeout: 30000 // Standard 30 second timeout for real backend processing
 });

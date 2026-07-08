@@ -11,6 +11,7 @@ import {
   getStrategies,
   promoteStrategy
 } from '../../api/client';
+import { API_BASE_URL } from '../../api/config';
 import { Feature, Strategy } from '../../types';
 import Button from '@mui/material/Button';
 import CircularProgress from '@mui/material/CircularProgress';
@@ -283,7 +284,7 @@ export const AIResearcher: React.FC = () => {
         {
           id: `step_err_${Date.now()}`,
           role: 'assistant',
-          content: `🛑 **Agentic Backend API Error**\n\nFailed to establish connection or run tasks on the agentic system. Please ensure the backend service is running and properly configured at \`${(import.meta as any).env?.VITE_API_BASE_URL ?? 'https://hedge-fund-backend-production-459a.up.railway.app/api/v1'}\`.\n\n*Details:* \`${err.message || err.toString()}\``,
+          content: `🛑 **Agentic Backend API Error**\n\nFailed to establish connection or run tasks on the agentic system. Please ensure the backend service is running and properly configured at \`${API_BASE_URL}\`.\n\n*Details:* \`${err.message || err.toString()}\``,
           timestamp: new Date().toLocaleTimeString()
         }
       ]);
