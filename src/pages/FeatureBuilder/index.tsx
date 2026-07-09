@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getFeatures, generateFeatureAsync, createFeature, getAvailablePlugins } from '../../api/client';
+import { getFeatures, generateFeatureAsync, createFeature, getAvailablePlugins, regenerateFeature } from '../../api/client';
 import { Feature } from '../../types';
 import Button from '@mui/material/Button';
 import { DataPreviewPanel } from '../../components/pipeline/DataPreviewPanel';
@@ -23,7 +23,7 @@ export const FeatureBuilder: React.FC = () => {
   const { data: features = [] } = useQuery<Feature[]>({ queryKey: ['features'], queryFn: getFeatures });
   const [selectedId, setSelectedId] = useState<string>('f_1');
   const [activeTab, setActiveTab] = useState<'versions' | 'generate' | 'preview'>('versions');
-  const [genTask, setGenTask] = useState<{ status: string; hash?: string; rows?: number } | null>(null);
+  const [genTask, setGenTask] = useState<{ status: string; hash?: string; rows?: number; error?: string } | null>(null);
 
   // Available plugins from backend
   const { data: availablePluginsData } = useQuery<{ plugins: string[] }>({
@@ -79,6 +79,9 @@ export const FeatureBuilder: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['features'] });
       setSelectedId(data.id);
       setShowNewForm(false);
+    },
+    onError: (error: any) => {
+      console.error('Failed to create feature:', error);
     }
   });
 
@@ -88,21 +91,54 @@ export const FeatureBuilder: React.FC = () => {
       name: newName,
       type: newType,
       plugin_key: selectedPlugin,
-      version: 'v1.0.0',
-      last_generated: new Date().toISOString(),
-      storage_size: '0.0 MB',
-      params: { period: periodVal }
+      parameters: { period: periodVal }  // Use 'parameters' to match backend API
     });
   };
 
   const selectedFeat = features.find((f) => f.id === selectedId) ?? features[0];
 
+  // Generate feature mutation
+  const generateMutation = useMutation({
+    mutationFn: ({ featureId, force = false }: { featureId: string; force?: boolean }) => {
+      const requestBody = {
+        symbol: genSymbol,
+        timeframe: genTimeframe,
+        start_date: genStart,
+        end_date: genEnd
+      };
+      if (force) {
+        return regenerateFeature(featureId, requestBody);
+      }
+      return generateFeatureAsync(featureId, requestBody);
+    },
+    onSuccess: (data) => {
+      // Update with real response from backend
+      setGenTask({
+        status: 'SUCCESS',
+        hash: data?.dataset?.version_hash || `v_${Math.random().toString(36).slice(2, 8)}`,
+        rows: data?.dataset?.row_count || 0
+      });
+      // Refresh the feature list to get updated data
+      queryClient.invalidateQueries({ queryKey: ['features'] });
+    },
+    onError: (error: any) => {
+      setGenTask({
+        status: 'ERROR',
+        error: error?.message || 'Failed to generate feature'
+      });
+    }
+  });
+
   const handleGenerate = () => {
+    if (!selectedId || !validationStatus.canGenerate) return;
     setGenTask({ status: 'RUNNING' });
-    generateFeatureAsync(selectedId);
-    setTimeout(() => {
-      setGenTask({ status: 'SUCCESS', hash: `v_${Math.random().toString(36).slice(2, 8)}`, rows: 5040 });
-    }, 2000);
+    generateMutation.mutate({ featureId: selectedId, force: false });
+  };
+
+  const handleForceRegenerate = () => {
+    if (!selectedId) return;
+    setGenTask({ status: 'RUNNING' });
+    generateMutation.mutate({ featureId: selectedId, force: true });
   };
 
   const typesList = ['Technical', 'Statistical', 'Automated', 'News', 'Fundamental', 'Macro'] as const;
@@ -354,8 +390,14 @@ export const FeatureBuilder: React.FC = () => {
                 )}
 
                 {genTask && (
-                  <div className={`p-4 rounded border font-mono text-xs ${genTask.status === 'SUCCESS' ? 'bg-[#2ECC8F]/15 border-[#2ECC8F]/40 text-[#2ECC8F]' : 'bg-[#4F8EF7]/15 border-[#4F8EF7]/40 text-[#4F8EF7]'}`}>
-                    {genTask.status === 'RUNNING' ? '● RUNNING_TASK // DISTRIBUTED WORKERS EXTRACTING MOMENTS...' : `✓ GENERATION_COMPLETE // Rows: ${genTask.rows?.toLocaleString()} // Hash: ${genTask.hash}`}
+                  <div className={`p-4 rounded border font-mono text-xs ${
+                    genTask.status === 'SUCCESS' ? 'bg-[#2ECC8F]/15 border-[#2ECC8F]/40 text-[#2ECC8F]' :
+                    genTask.status === 'ERROR' ? 'bg-red-950/20 border-red-500/40 text-red-400' :
+                    'bg-[#4F8EF7]/15 border-[#4F8EF7]/40 text-[#4F8EF7]'
+                  }`}>
+                    {genTask.status === 'RUNNING' ? '● RUNNING_TASK // DISTRIBUTED WORKERS EXTRACTING MOMENTS...' :
+                     genTask.status === 'ERROR' ? `✗ ERROR // ${genTask.error}` :
+                     `✓ GENERATION_COMPLETE // Rows: ${genTask.rows?.toLocaleString()} // Hash: ${genTask.hash}`}
                   </div>
                 )}
 
@@ -364,15 +406,15 @@ export const FeatureBuilder: React.FC = () => {
                     variant="contained" 
                     color="primary" 
                     onClick={handleGenerate} 
-                    disabled={genTask?.status === 'RUNNING' || !validationStatus.canGenerate} 
-                    className={`font-bold tracking-wider ${validationStatus.canGenerate ? 'bg-[#4F8EF7] text-white' : 'bg-[#1a1c23] text-gray-500 cursor-not-allowed border border-[#252A3A]'}`}
+                    disabled={genTask?.status === 'RUNNING' || !validationStatus.canGenerate || !selectedId} 
+                    className={`font-bold tracking-wider ${validationStatus.canGenerate && selectedId ? 'bg-[#4F8EF7] text-white' : 'bg-[#1a1c23] text-gray-500 cursor-not-allowed border border-[#252A3A]'}`}
                   >
-                    Generate Feature Lake
+                    {genTask?.status === 'RUNNING' ? 'Generating...' : 'Generate Feature Lake'}
                   </Button>
                   <Button 
                     variant="outlined" 
-                    onClick={handleGenerate} 
-                    disabled={!validationStatus.canGenerate}
+                    onClick={handleForceRegenerate} 
+                    disabled={genTask?.status === 'RUNNING' || !validationStatus.canGenerate || !selectedId}
                     className="text-[#c5a059] border-[#c5a059]"
                   >
                     Force Regenerate

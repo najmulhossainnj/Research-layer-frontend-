@@ -98,6 +98,41 @@ export interface Feature {
   storage_size?: string;
 }
 
+// Feature creation request body (matches backend API)
+export interface FeatureCreateRequest {
+  name: string;
+  type: string;
+  description?: string;
+  parameters?: Record<string, any>;
+  plugin_key: string;
+}
+
+// Feature generation request body (matches backend API)
+export interface FeatureGenerateRequest {
+  symbol: string;
+  timeframe?: string;
+  start_date: string;
+  end_date: string;
+}
+
+// Feature generation response (matches backend API)
+export interface FeatureGenerateResponse {
+  dataset: {
+    id: string;
+    feature_id: string;
+    symbol: string;
+    timeframe: string;
+    start_date: string;
+    end_date: string;
+    version_hash: string;
+    storage_uri: string;
+    row_count?: number;
+    columns?: string[];
+    created_at: string;
+  };
+  preview?: Record<string, any>[];
+}
+
 export interface FeatureVersion {
   version_hash: string;
   symbol: string;
